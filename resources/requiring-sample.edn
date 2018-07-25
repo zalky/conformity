@@ -1,14 +1,16 @@
-{:requiring/base
- {:txes [[{:db/ident :preferences/color
-           :db/valueType :db.type/string
-           :db/cardinality :db.cardinality/one
-           :db/id #db/id[:db.part/db]
-           :db.install/_attribute :db.part/db}]
+{:requiring/schema
+ {:tx [{:db/ident :preferences/color
+        :db/valueType :db.type/string
+        :db/cardinality :db.cardinality/one
+        :db/id #db/id[:db.part/db]
+        :db.install/_attribute :db.part/db}]}
 
-         [{:db/id #db/id[:db.part/user]
-           :preferences/color "green"}]]}
+ :requiring/base
+ {:requires [:requiring/schema]
+  :tx [{:db/id #db/id[:db.part/user]
+        :preferences/color "green"}]}
 
-:requiring/dependent
+ :requiring/dependent
  {:requires [:requiring/base]
-  :txes-fn migrations.requiring/everyone-likes-orange-instead}}
+  :tx-fn migrations.requiring/everyone-likes-orange-instead}}
 

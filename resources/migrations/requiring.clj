@@ -19,6 +19,6 @@
                     (d/db conn)
                     :preferences/color
                     "green")]
-    [(for [eid green-eids]
-       [:db/add eid
-        :preferences/color "orange"])]))
+    (for [eid green-eids]
+      [:db/add eid
+       :preferences/color "orange"])))

@@ -9,12 +9,12 @@
     :db/cardinality :db.cardinality/one
     :db.install/_attribute :db.part/db}])
 
-(defn txes-foo [conn]
-  (vector (vec
-           (mapcat (partial attr "txes-fn")
-                   ["foo-1" "foo-2"]))))
+(defn tx-foo [conn]
+  (vec
+   (mapcat (partial attr "tx-fn")
+           ["foo-1" "foo-2"])))
 
-(defn txes-bar [conn]
-  (vector (vec
-           (mapcat (partial attr "txes-fn")
-                   ["bar-1" "bar-2"]))) )
+(defn tx-bar [conn]
+  (vec
+   (mapcat (partial attr "tx-fn")
+           ["bar-1" "bar-2"])) )

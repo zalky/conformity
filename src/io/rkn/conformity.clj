@@ -9,14 +9,13 @@
   "Transaction function to ensure each norm tx is executed exactly once"
   (d/function
    '{:lang :clojure
-     :params [db norm-attr norm index-attr index tx]
+     :params [db norm-attr norm tx]
      :code (when-not (seq (q '[:find ?tx
-                               :in $ ?na ?nv ?ia ?iv
-                               :where [?tx ?na ?nv ?tx] [?tx ?ia ?iv ?tx]]
-                             db norm-attr norm index-attr index))
+                               :in $ ?na ?nv
+                               :where [?tx ?na ?nv ?tx]]
+                             db norm-attr norm))
              (cons {:db/id (d/tempid :db.part/tx)
-                    norm-attr norm
-                    index-attr index}
+                    norm-attr norm}
                    tx))}))
 
 (defn read-resource
@@ -29,12 +28,6 @@
         (io/reader)
         (java.io.PushbackReader.)
         (clojure.edn/read opts))))
-
-(defn index-attr
-  "Returns the index-attr corresponding to a conformity-attr"
-  [conformity-attr]
-  (keyword (namespace conformity-attr)
-           (str (name conformity-attr) "-index")))
 
 (defn has-attribute?
   "Returns true if a database has an attribute named attr-name"
@@ -69,14 +62,6 @@
                        :db/doc "Name of this transaction's norm"
                        :db/index true
                        :db.install/_attribute :db.part/db}]))
-  (when-not (has-attribute? (db conn) (index-attr conformity-attr))
-    (d/transact conn [{:db/id (d/tempid :db.part/db)
-                       :db/ident (index-attr conformity-attr)
-                       :db/valueType :db.type/long
-                       :db/cardinality :db.cardinality/one
-                       :db/doc "Index of this transaction within its norm"
-                       :db/index true
-                       :db.install/_attribute :db.part/db}]))
   (when-not (has-function? (db conn) conformity-ensure-norm-tx)
     (d/transact conn [{:db/id (d/tempid :db.part/user)
                        :db/ident conformity-ensure-norm-tx
@@ -90,17 +75,14 @@
                        track conformity
       norm             the keyword name of the norm you want to check
       tx-count         the count of transactions for that norm"
-  ([db norm tx-count]
-   (conforms-to? db (default-conformity-attribute-for-db db) norm tx-count))
-  ([db conformity-attr norm tx-count]
+  ([db norm]
+   (conforms-to? db (default-conformity-attribute-for-db db) norm))
+  ([db conformity-attr norm]
    (and (has-attribute? db conformity-attr)
-        (pos? tx-count)
-        (-> (q '[:find ?tx
-                 :in $ ?na ?nv
-                 :where [?tx ?na ?nv ?tx]]
-               db conformity-attr norm)
-            count
-            (= tx-count)))))
+        (boolean (seq (q '[:find ?tx
+                           :in $ ?na ?nv
+                           :where [?tx ?na ?nv ?tx]]
+                         db conformity-attr norm))))))
 
 (defn maybe-timeout-synch-schema [conn maybe-timeout]
   (if maybe-timeout
@@ -110,53 +92,47 @@
         result))
     @(d/sync-schema conn (d/basis-t (d/db conn)))))
 
-(defn reduce-txes
-  "Reduces the seq of transactions for a norm into a transaction
-  result accumulator"
-  [acc conn norm-attr norm-name txes sync-schema-timeout]
-  (reduce
-   (fn [acc [tx-index tx]]
-     (try
-       (let [safe-tx [conformity-ensure-norm-tx
-                      norm-attr norm-name
-                      (index-attr norm-attr) tx-index
-                      tx]
-             _ (maybe-timeout-synch-schema conn sync-schema-timeout)
-             tx-result @(d/transact conn [safe-tx])]
-         (if (next (:tx-data tx-result))
-           (conj acc {:norm-name norm-name
-                      :tx-index tx-index
-                      :tx-result tx-result})
-           acc))
-       (catch Throwable t
-         (let [reason (.getMessage t)
-               data {:succeeded acc
-                     :failed {:norm-name norm-name
-                              :tx-index tx-index
-                              :reason reason}}]
-           (throw (ex-info reason data t))))))
-   acc (map-indexed vector txes)))
+(defn transact-tx
+  "Transacts the norm, `tx`, and adds result to accumulator."
+  [acc conn norm-attr norm-name tx sync-schema-timeout]
+  (try
+    (let [safe-tx [conformity-ensure-norm-tx
+                   norm-attr
+                   norm-name
+                   tx]
+          _ (maybe-timeout-synch-schema conn sync-schema-timeout)
+          tx-result @(d/transact conn [safe-tx])]
+      (if (next (:tx-data tx-result))
+        (conj acc {:norm-name norm-name
+                   :tx-result tx-result})
+        acc))
+    (catch Throwable t
+      (let [reason (.getMessage t)
+            data {:succeeded acc
+                  :failed {:norm-name norm-name
+                           :reason reason}}]
+        (throw (ex-info reason data t))))))
 
-(defn eval-txes-fn
+(defn eval-tx-fn
   "Given a connection and a symbol referencing a function on the classpath...
      - `require` the symbol's namespace
      - `resolve` the symbol
      - evaluate the function, passing it the connection
      - return the result"
-  [conn txes-fn]
-  (try (require (symbol (namespace txes-fn)))
-       {:txes ((resolve txes-fn) conn)}
+  [conn tx-fn]
+  (try (require (symbol (namespace tx-fn)))
+       {:tx ((resolve tx-fn) conn)}
        (catch Throwable t
-         {:ex (str "Exception evaluating " txes-fn ": " t)})))
+         {:ex (str "Exception evaluating " tx-fn ": " t)})))
 
 (defn get-norm
   "Pull from `norm-map` the `norm-name` value. If the norm contains a
-  `txes-fn` key, allow processing of that key to stand in for a `txes`
+  `tx-fn` key, allow processing of that key to stand in for a `tx`
   value. Returns the value containing transactable data."
   [conn norm-map norm-name]
-  (let [{:keys [txes txes-fn] :as norm} (get norm-map norm-name)]
+  (let [{:keys [tx tx-fn] :as norm} (get norm-map norm-name)]
     (cond-> norm
-      txes-fn (merge (eval-txes-fn conn txes-fn)))))
+      tx-fn (merge (eval-tx-fn conn tx-fn)))))
 
 (defn reduce-norms
   "Reduces norms from a norm-map specified by a seq of norm-names into
@@ -167,12 +143,11 @@
      (fn [acc norm-name]
        (let [requires (-> norm-map norm-name :requires)
              acc (cond-> acc
-                   requires (reduce-norms conn norm-attr norm-map requires))
-             {:keys [txes ex]} (get-norm conn norm-map norm-name)]
-         (cond (conforms-to? (db conn) norm-attr norm-name (count txes))
-               acc
-
-               (empty? txes)
+                   requires (reduce-norms conn norm-attr norm-map requires))]
+         (if (conforms-to? (db conn) norm-attr norm-name)
+           acc
+           (let [{:keys [tx ex]} (get-norm conn norm-map norm-name)]
+             (if-not tx
                (let [reason (or ex
                                 (str "No transactions provided for norm "
                                      norm-name))
@@ -180,9 +155,7 @@
                            :failed {:norm-name norm-name
                                     :reason reason}}]
                  (throw (ex-info reason data)))
-
-               :else
-               (reduce-txes acc conn norm-attr norm-name txes sync-schema-timeout))))
+               (transact-tx acc conn norm-attr norm-name tx sync-schema-timeout))))))
      acc norm-names)))
 
 (defn ensure-conforms
@@ -193,8 +166,8 @@
                        track conformity
       norm-map         a map from norm names to data maps.
                        a data map contains:
-                         :txes     - the data to install
-                         :txes-fn  - An alternative to txes, pointing to a
+                         :tx       - the data to install
+                         :tx-fn    - An alternative to txes, pointing to a
                                      symbol representing a fn on the classpath that
                                      will return transactions.
                          :requires - (optional) a list of prerequisite norms
