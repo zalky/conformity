@@ -6,12 +6,9 @@ In the simplest sense, conformity allows you to write migrations and ensure that
 
 In a more general sense, conformity allows you to declare expectations (in the form of norms) about the state of your database, and enforce those idempotently without repeatedly transacting schema, required data, etc.
 
-## Dependency
+## Fork
 
-Conformity is available on clojars, and can be included in your leiningen `project.clj` by adding the following to `:dependencies`:
-
-[![Clojars Project](http://clojars.org/io.rkn/conformity/latest-version.svg)](http://clojars.org/io.rkn/conformity)
-
+This fork simplifies conformity to allow only one transaction per norm. This is a breaking change. See commit 6386dde015ee8ec1812fb248e99f3496f877e818 for an explanation.
 
 ## Usage
 
@@ -20,12 +17,12 @@ The easiest way to use conformity is to store your norms in an edn file that liv
 ```clojure
 ;; resources/something.edn
 {:my-project/something-schema
-  {:txes [[{:db/id #db/id [:db.part/db]
-            :db/ident :something/title
-            :db/valueType :db.type/string
-            :db/cardinality :db.cardinality/one
-            :db/index false
-            :db.install/_attribute :db.part/db}]]}}
+  {:tx [{:db/id #db/id [:db.part/db]
+         :db/ident :something/title
+         :db/valueType :db.type/string
+         :db/cardinality :db.cardinality/one
+         :db/index false
+         :db.install/_attribute :db.part/db}]}}
 ```
 Then in your code:
 # src/my_project/something.clj
@@ -75,7 +72,7 @@ Instead of using the `:txes` key to point to an inline transaction, you can also
 ```clojure
 ;; resources/something.edn
 {:my-project/something-else-schema
-  {:txes-fn my-project.migrations.txes/everyone-likes-orange-instead}}
+  {:tx-fn my-project.migrations.txes/everyone-likes-orange-instead}}
 ```
 
 `everyone-likes-orange-instead` will be passed the Datomic connection and should return transaction data, allowing transactions to be driven by full-fledged inspection of the database.
@@ -104,9 +101,9 @@ For example...
                     (d/db conn)
                     :preferences/color
                     "green")]
-    [(for [eid green-eids]
-       [:db/add eid
-        :preferences/color "orange"])]))
+    (for [eid green-eids]
+      [:db/add eid
+       :preferences/color "orange"])))
 ```
 
 
