@@ -1,0 +1,6 @@
+{:deps    {org.clojure/clojure      {:mvn/version "1.5.1"}
+           com.datomic/datomic-free {:mvn/version "0.9.4815.12"}
+           io.zalky/tools.namespace {:mvn/version "1.3.1-TNS-6"}}
+ :aliases {:build {:deps       {io.zalky/build-clj {:git/url "https://github.com/zalky/build-clj.git"
+                                                    :git/sha "b38281eda585731a7ba330e3d66ba2d8c74e4540"}}
+                   :ns-default io.zalky.build}}}

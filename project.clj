@@ -1,4 +1,4 @@
-(defproject org.semion/conformity "0.6.0-SNAPSHOT"
+(defproject io.zalky/conformity "0.5.2-SNAPSHOT"
   :description "Idempotent datom transacting for Datomic.\n\nSpecial thanks to Stuart Halloway for the original idea, implementation and permission to take it and run."
   :url "http://github.com/rkneufeld/conformity"
   :license {:name "Eclipse Public License"
